@@ -21,16 +21,8 @@ module Sidekiq
 
     extend self
 
-    def post_7?
-      @post_7 ||= Gem::Version.new(Sidekiq::VERSION) >= Gem::Version.new('7.0.0')
-    end
-
-    def post_6_5?
-      @post_6_5 ||= Gem::Version.new(Sidekiq::VERSION) >= Gem::Version.new('6.5.0')
-    end
-
-    RedisBaseConnectionError = post_7? ? RedisClient::ConnectionError : Redis::BaseConnectionError
-    RedisCommandError = post_7? ? RedisClient::CommandError : Redis::CommandError
+    RedisBaseConnectionError = RedisClient::ConnectionError
+    RedisCommandError = RedisClient::CommandError
 
     def new(_)
       self
@@ -43,18 +35,11 @@ module Sidekiq
     end
 
     def config
-      # Post 6.5, Sidekiq.options is deprecated and replaced with passing Sidekiq directly
-      post_6_5? ? Sidekiq : Sidekiq.options
+      Sidekiq.options
     end
 
-    # Backwards compatibility for sidekiq v6.1.0
-    # @see https://github.com/mperham/sidekiq/pull/4602
     def bulk_requeue(*args)
-      if Sidekiq::BasicFetch.respond_to?(:bulk_requeue) # < 6.1.0
-        Sidekiq::BasicFetch.bulk_requeue(*args)
-      else # 6.1.0+
-        Sidekiq::BasicFetch.new(post_7? ? Sidekiq.default_configuration.default_capsule : config).bulk_requeue(*args)
-      end
+      Sidekiq::BasicFetch.new(Sidekiq.default_configuration.default_capsule).bulk_requeue(*args)
     end
 
     def redis_retryable
@@ -81,11 +66,7 @@ module Sidekiq
       else
         redis_retryable do
           Sidekiq.redis do |it|
-            if post_7?
-              it.blocking_call(false, 'brpop', *queues, TIMEOUT)
-            else
-              it.brpop(*queues, timeout: TIMEOUT)
-            end
+            it.blocking_call(false, 'brpop', *queues, TIMEOUT)
           end
         end
       end

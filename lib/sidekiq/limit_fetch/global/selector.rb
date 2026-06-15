@@ -32,11 +32,7 @@ module Sidekiq
           rescue Sidekiq::LimitFetch::RedisCommandError => e
             raise unless e.message.include? 'NOSCRIPT'
 
-            if Sidekiq::LimitFetch.post_7?
-              it.eval send("redis_#{script_name}_script"), 0, *args
-            else
-              it.eval send("redis_#{script_name}_script"), argv: args
-            end
+            it.eval send("redis_#{script_name}_script"), 0, *args
           end
         end
 
