@@ -24,7 +24,7 @@ RSpec.describe Sidekiq::LimitFetch::Queues do
   end
 
   let(:capsule_or_options) do
-    Sidekiq::LimitFetch.post_7? ? capsule : options
+    capsule
   end
 
   before do

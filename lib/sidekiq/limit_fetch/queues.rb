@@ -11,16 +11,10 @@ module Sidekiq
       # rubocop:disable Metrics/CyclomaticComplexity
       # rubocop:disable Metrics/MethodLength
       # rubocop:disable Metrics/PerceivedComplexity
-      def start(capsule_or_options)
-        config = Sidekiq::LimitFetch.post_7? ? capsule_or_options.config : capsule_or_options
+      def start(capsule)
+        config  = capsule.config
+        @queues = capsule.queues.map { |queue| queue.is_a?(Array) ? queue.first : queue }.uniq
 
-        @queues = config[:queues].map do |queue|
-          if queue.is_a? Array
-            queue.first
-          else
-            queue
-          end
-        end.uniq
         @startup_queues = @queues.dup
 
         if config[:dynamic].is_a? Hash

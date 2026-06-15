@@ -5,13 +5,8 @@ SimpleCov.start
 
 require 'sidekiq/limit_fetch'
 
-if Sidekiq::LimitFetch.post_7?
-  Sidekiq.configure_embed do |config|
-    config.logger = nil
-  end
-else
-  Sidekiq.logger = nil
-  Sidekiq.redis = { namespace: ENV.fetch('namespace', nil) }
+Sidekiq.configure_embed do |config|
+  config.logger = nil
 end
 
 RSpec.configure do |config|

@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.5.0] - 2026-06-15
+
+This project was taken over by [@HornsAndHooves](https://github.com/HornsAndHooves)
+
+- Remove compatibility with Sidekiq < 8
+- Fix issue with queue weights specified via CLI not processing jobs
+
 ## [4.3.2] - 2022-09-01
 
 - #139 - Fix Redis deprecation warnings from [@adamzapasnik](https://github.com/adamzapasnik)

@@ -52,7 +52,7 @@ RSpec.describe Sidekiq::LimitFetch::Global::Monitor do
     end
 
     let(:capsule_or_options) do
-      Sidekiq::LimitFetch.post_7? ? capsule : options
+      capsule
     end
 
     context 'without excluded queue' do
