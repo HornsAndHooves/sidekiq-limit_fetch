@@ -1,5 +1,7 @@
 ## Description
 
+*This is a fork of <https://github.com/deanpcmad/sidekiq-limit_fetch>. This version does not support Sidekiq < 8, if you are using a Sidekiq version below v8 you must use the original gem.*
+
 Sidekiq strategy to support a granular queue control – limiting, pausing, blocking, querying.
 
 ### Installation
