@@ -1,21 +1,13 @@
 ## Description
 
-*This project has been taken over by [@deanpcmad](https://github.com/deanpcmad). Original code by [@brainopia](https://github.com/brainopia).*
-
 Sidekiq strategy to support a granular queue control – limiting, pausing, blocking, querying.
-
-[![CI](https://github.com/deanpcmad/sidekiq-limit_fetch/actions/workflows/ci.yml/badge.svg)](https://github.com/deanpcmad/sidekiq-limit_fetch/actions/workflows/ci.yml)
-[![Gem Version](https://badge.fury.io/rb/sidekiq-limit_fetch.svg)](http://badge.fury.io/rb/sidekiq-limit_fetch)
-
-> [!NOTE]
-> This project/repo is currently unmaintained. I no longer use Sidekiq and therefore no longer need this feature.
 
 ### Installation
 
 Add this line to your application's Gemfile:
 
 ```
-gem 'sidekiq-limit_fetch'
+gem 'HornsAndHooves-sidekiq-limit_fetch'
 ```
 
 Then `bundle install`.
@@ -24,19 +16,19 @@ Then `bundle install`.
 
 > [!WARNING]
 > At this moment, `sidekiq-limit_fetch` is incompatible with
-> sidekiq pro's [super_fetch](https://github.com/sidekiq/sidekiq/wiki/Reliability#using-super_fetch),
+> Sidekiq Pro's [super_fetch](https://github.com/sidekiq/sidekiq/wiki/Reliability#using-super_fetch),
 > [sidekiq-rate-limiter](https://github.com/enova/sidekiq-rate-limiter),
-> and any other plugin that rewrites fetch strategy of sidekiq.
+> and any other plugin that rewrites fetch strategy of Sidekiq.
 
 ### Usage
 
 If you are using this with Rails, you don't need to require it as it's done automatically.
 
-To use this Gem in other Ruby projects, just add `require 'sidekiq-limit_fetch'`.
+To use this Gem in other Ruby projects, just add `require 'HornsAndHooves-sidekiq-limit_fetch'`.
 
 ### Limits
 
-Specify limits which you want to place on queues inside sidekiq.yml:
+Specify limits which you want to place on queues inside `sidekiq.yml`:
 
 ```yaml
 :limits:
@@ -59,7 +51,7 @@ distribution among queues any time you want.
 
 ### Limits per process
 
-If you use multiple sidekiq processes then you can specify limits per process:
+If you use multiple Sidekiq processes then you can specify limits per process:
 
 ```yaml
 :process_limits:
@@ -145,10 +137,10 @@ Sidekiq::Queue['queue1'].block_except 'queue2'
 
 ### Dynamic queues
 
-You can support dynamic queues (that are not listed in sidekiq.yml but
+You can support dynamic queues (that are not listed in `sidekiq.yml` but
 that have tasks pushed to them (usually with `Sidekiq::Client.push`)).
 
-To use this mode you need to specify a following line in sidekiq.yml:
+To use this mode you need to specify a following line in `sidekiq.yml`:
 
 ```yaml
 :dynamic: true
@@ -168,4 +160,4 @@ Dynamic queues will be ran at the lowest priority.
 
 ### Maintenance
 
-If you use `flushdb`, restart the sidekiq process to re-populate the dynamic configuration.
+If you use `flushdb`, restart the Sidekiq process to re-populate the dynamic configuration.
