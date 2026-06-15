@@ -2,7 +2,7 @@
 
 require 'English'
 Gem::Specification.new do |gem|
-  gem.name          = 'sidekiq-limit_fetch'
+  gem.name          = 'HornsAndHooves-sidekiq-limit_fetch'
   gem.version       = '4.5.0'
   gem.license       = 'MIT'
   gem.authors       = ['HornsAndHooves', 'Peter Maneykowski']

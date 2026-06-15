@@ -1,1 +1,5 @@
---require spec_helper --color
+--color
+--profile
+--backtrace
+--require spec_helper
+--format documentation

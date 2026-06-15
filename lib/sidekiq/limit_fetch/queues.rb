@@ -12,6 +12,7 @@ module Sidekiq
       # rubocop:disable Metrics/MethodLength
       # rubocop:disable Metrics/PerceivedComplexity
       def start(capsule)
+        config  = capsule.config
         @queues = capsule.queues.map { |queue| queue.is_a?(Array) ? queue.first : queue }.uniq
 
         @startup_queues = @queues.dup

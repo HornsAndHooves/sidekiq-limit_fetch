@@ -13,7 +13,7 @@ RSpec.describe Sidekiq::LimitFetch do
       cap.queues = config[:queues]
     end
   end
-  let(:capsule_or_config) { Sidekiq::LimitFetch.post_7? ? capsule : options }
+  let(:capsule_or_config) { capsule }
 
   before do
     subject::Queues.start(capsule_or_config)

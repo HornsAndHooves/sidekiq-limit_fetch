@@ -31,15 +31,15 @@ module Sidekiq
     def retrieve_work
       queue, job = redis_brpop(Queues.acquire)
       Queues.release_except(queue)
-      UnitOfWork.new(queue, job) if job
+      UnitOfWork.new(queue, job, capsule) if job
     end
 
-    def config
-      Sidekiq.options
+    def capsule
+      Sidekiq.default_configuration.default_capsule
     end
 
     def bulk_requeue(*args)
-      Sidekiq::BasicFetch.new(Sidekiq.default_configuration.default_capsule).bulk_requeue(*args)
+      Sidekiq::BasicFetch.new(capsule).bulk_requeue(*args)
     end
 
     def redis_retryable
