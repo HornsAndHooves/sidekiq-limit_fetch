@@ -3,8 +3,8 @@
 module Sidekiq
   module LimitFetch
     class UnitOfWork < BasicFetch::UnitOfWork
-      def initialize(queue, job)
-        super(queue, job, Sidekiq)
+      def initialize(...)
+        super
         redis_retryable { Queue[queue_name].increase_busy }
       end
 

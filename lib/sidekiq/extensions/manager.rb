@@ -3,8 +3,8 @@
 module Sidekiq
   class Manager
     module InitLimitFetch
-      def initialize(capsule_or_options)
-        capsule_or_options.config[:fetch_class] = Sidekiq::LimitFetch
+      def initialize(capsule)
+        capsule.config[:fetch_class] = Sidekiq::LimitFetch
         super
       end
 
