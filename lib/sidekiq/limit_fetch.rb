@@ -45,28 +45,32 @@ module Sidekiq
     # -> A1 takes an email job and A2 takes an email job
     # -> B1 & B2 need to wait until their sleep timeout before processing the payment jobs
 
-    # POLL_RANGE = Range.new(0.050, 0.100) # ~3.4%
-    # POLL_RANGE = Range.new(0.100, 0.200) # 1.3%
-    # POLL_RANGE = Range.new(0.200, 0.300) # 0.8%
-    # POLL_RANGE = Range.new(0.400, 0.500) # ~0.5%
-    # POLL_RANGE = Range.new(1.000, 1.200) # ~0.1%
-
-    # STRATEGY = 'WAIT'
+    # strategy   = "WAIT"
+    # poll_range = Range.new(0.050, 0.100) # ~3.4%
+    # poll_range = Range.new(0.100, 0.200) # 1.3%
+    # poll_range = Range.new(0.200, 0.300) # 0.8%
+    # poll_range = Range.new(0.400, 0.500) # ~0.5%
+    # poll_range = Range.new(1.000, 1.200) # ~0.1%
 
     # Better job distribution but uses more CPU
     #
     # Workers will sleep for a random number in this range when no jobs are found.
     # This means when there is no queue backlog the maximum time to pick up a job will be within this range.
     # Queues with a backlog will continue to process jobs immediately.
-
-    STRATEGY = "POLL"
+    def self.configuration
+      @configuration ||= {
+        strategy:   "POLL",
+        poll_range: Range.new(0.400, 0.500),
+      }
+    end
 
     # Ranges with median CPU utilization on macOS with concurrency of 5:
-    POLL_RANGE = Range.new(0.050, 0.100) # ~2.7%
-    # POLL_RANGE = Range.new(0.100, 0.200) # 1.3%
-    # POLL_RANGE = Range.new(0.200, 0.300) # 0.8%
-    # POLL_RANGE = Range.new(0.400, 0.500) # ~0.5%
-    # POLL_RANGE = Range.new(1.000, 1.200) # ~0.1%
+    # strategy   = "POLL"
+    # poll_range = Range.new(0.050, 0.100) # ~2.7%
+    # poll_range = Range.new(0.100, 0.200) # 1.3%
+    # poll_range = Range.new(0.200, 0.300) # 0.8%
+    # poll_range = Range.new(0.400, 0.500) # ~0.5%
+    # poll_range = Range.new(1.000, 1.200) # ~0.1%
 
     # Raise this exception to heartbeat threads when Sidekiq sends the shutdown hook.
     class Shutdown < StandardError; end
@@ -80,15 +84,16 @@ module Sidekiq
 
       capsule_meta.queue_set.each do |queue_name|
         queue = Global::QueueSemaphore.new(capsule, queue_name)
+        queue_sym = queue_name.to_sym
 
         # Apply process limit
         if queue.process_limit.nil?
-          queue.process_limit = process_limits[queue_name.to_sym]
+          queue.process_limit = process_limits[queue_sym]
         end
 
         # Apply global limit
         if queue.limit.nil?
-          queue.limit = limits[queue_name.to_sym]
+          queue.limit = limits[queue_sym]
         end
       end
 
@@ -107,7 +112,7 @@ module Sidekiq
     def retrieve_work
       ordered_queues = queues_cmd # BasicFetch method handles randomization or strict ordering
 
-      case STRATEGY
+      case self.class.configuration[:strategy]
       when "POLL" then run_poll(ordered_queues)
 
       # :nocov: This will probably be removed
@@ -164,7 +169,7 @@ module Sidekiq
 
     # @return [Float]
     def poll_interval
-      Random.rand(POLL_RANGE)
+      Random.rand(self.class.configuration[:poll_range])
     end
 
     # @return [Global::Selector]
