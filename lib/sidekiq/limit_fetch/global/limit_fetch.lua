@@ -18,17 +18,17 @@ local global_limit, process_limit
 
 -- Unpack keys to table structure:
 --   {
---     'queue:email' => [
---       'sidekiq:limit_fetch:queue:email:process_limit',
---       'sidekiq:limit_fetch:queue:email:limit',
---       'sidekiq:limit_fetch:queue:email:busy',
+--     "queue:email" => [
+--       "sidekiq:limit_fetch:queue:email:process_limit",
+--       "sidekiq:limit_fetch:queue:email:limit",
+--       "sidekiq:limit_fetch:queue:email:busy",
 --     ]
 --   }
 local queues = {} -- Preserves order
 local queue_configs = {}
 local current_queue_name
 for _, key in ipairs(KEYS) do
-  if key:find('queue:', 1, true) == 1 then
+  if key:find("queue:", 1, true) == 1 then
     queues[#queues+1] = key
     current_queue_name = key
     queue_configs[current_queue_name] = {}
@@ -45,7 +45,7 @@ for _, queue in ipairs(queues) do
   busy_key          = queue_config[3]
 
   global_limit, process_limit =
-    unpack(redis.call('MGET',
+    unpack(redis.call("MGET",
       global_limit_key,
       process_limit_key
     ))
@@ -54,17 +54,17 @@ for _, queue in ipairs(queues) do
   process_limit = tonumber(process_limit)
 
   if process_limit then
-    process_locks = #(redis.call('LPOS', busy_key, capsule_uuid, 'COUNT', 0))
+    process_locks = #(redis.call("LPOS", busy_key, capsule_uuid, "COUNT", 0))
   end
 
   if not process_limit or process_limit > process_locks then
     if global_limit then
-      global_locks = redis.call('LLEN', busy_key)
+      global_locks = redis.call("LLEN", busy_key)
     end
     if not global_limit or global_limit > global_locks then
-      found_job = redis.call('RPOP', queue) -- Sidekiq queue
+      found_job = redis.call("RPOP", queue) -- Sidekiq queue
       if found_job then
-        redis.call('RPUSH', busy_key, capsule_uuid) -- Increment busy count
+        redis.call("RPUSH", busy_key, capsule_uuid) -- Increment busy count
         return {queue, found_job}
       end
     end

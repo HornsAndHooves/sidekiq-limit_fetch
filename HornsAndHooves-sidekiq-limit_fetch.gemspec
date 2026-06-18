@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-# require_relative "lib/sidekiq/limit_fetch/version"
-
 Gem::Specification.new do |gem|
+  gem.version = "5.0.0"
+
   gem.name          = "HornsAndHooves-sidekiq-limit_fetch"
   gem.license       = "MIT"
   gem.authors       = ["HornsAndHooves", "Peter Maneykowski"]
@@ -18,7 +18,6 @@ Gem::Specification.new do |gem|
   gem.files         = %w[CHANGELOG.md LICENSE README.md HornsAndHooves-sidekiq-limit_fetch.gemspec] + `git ls-files`.split($INPUT_RECORD_SEPARATOR)
   gem.require_paths = %w[lib]
 
-  gem.version = "5.0.0"
   gem.required_ruby_version = ">= 2.7.0"
 
   gem.add_dependency "sidekiq", ">= 8"

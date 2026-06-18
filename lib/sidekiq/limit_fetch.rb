@@ -18,6 +18,7 @@ module Sidekiq
     # Raise this exception to heartbeat threads when Sidekiq sends the shutdown hook.
     class Shutdown < StandardError; end
 
+    # Configurable values for Sidekiq::LimitFetch.
     def self.configuration
       @configuration ||= {
         # Workers will sleep for a random number in this range when no jobs are found.
