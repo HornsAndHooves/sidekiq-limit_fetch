@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "spec_helper"
-
 # These are semi end-to-end tests that use a real Redis connection and real
 # Sidekiq capsules/fetchers. No mocks or doubles are used for the core logic.
 # They validate:
@@ -13,7 +11,7 @@ require "spec_helper"
 #   - Queue ordering (strict and weighted random)
 
 RSpec.describe "Sidekiq::LimitFetch integration" do
-  let(:config) { Sidekiq::Config.new }
+  let(:config)  { Sidekiq::Config.new }
   let(:capsule) { config.default_capsule }
 
   # Prefix all test queues to avoid collision
@@ -44,10 +42,11 @@ RSpec.describe "Sidekiq::LimitFetch integration" do
 
   def cleanup_redis!
     capsule.redis do |conn|
-      keys = conn.call("KEYS", "*#{queue_prefix}*")
-      keys += conn.call("KEYS", "sidekiq:limit_fetch:capsule:*")
-      keys += conn.call("KEYS", "sidekiq:limit_fetch:capsules")
-      conn.call("DEL", *keys.uniq) unless keys.empty?
+      conn.call("DEL", *%W[
+        *#{queue_prefix}*
+        sidekiq:limit_fetch:capsule:*
+        sidekiq:limit_fetch:capsules*
+      ])
     end
   end
 
