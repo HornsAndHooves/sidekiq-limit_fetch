@@ -27,7 +27,7 @@ module Sidekiq
           end
 
           capsule_uuid = Global.capsule[capsule.name].uuid
-          redis_eval(keys.size, *keys, capsule_uuid, LimitFetch.configuration[:strategy])
+          redis_eval(keys.size, *keys, capsule_uuid)
         end
 
         # Run the `limit_fetch.lua` script.

@@ -15,65 +15,27 @@ module Sidekiq
     require_relative "limit_fetch/global/selector"
     require_relative "limit_fetch/heartbeat"
 
-    # Time between heartbeats.
-    HEARTBEAT_PERIOD = 15
+    # Raise this exception to heartbeat threads when Sidekiq sends the shutdown hook.
+    class Shutdown < StandardError; end
 
-    # Uses ~0% CPU but jobs fill up all threads in one process before being distributed to others
-    #
-    # Consider a queue with a global limit of 1 and two processes (A & B) that are able to process jobs from the queue.
-    # The first worker thread to be waiting for jobs from a queue keeps a "reservation" on it which prevents others from looking at it.
-    # This effectively means that only this worker is always going to get jobs from that queue.
-    #
-    # Another issue, consider:
-    #
-    #   email   limit = 2
-    #   payment limit = 2
-    #
-    #   Process A:
-    #     Thread A1
-    #     Thread A2
-    #
-    #   Process B:
-    #     Thread B1
-    #     Thread B2
-    #
-    # A1 reserves: [email slot1, email slot2, payment slot1, payment slot2]
-    # A2 reserves: [email slot1, email slot2, payment slot1, payment slot2]
-    # B1 reserves: []
-    # B2 reserves: []
-    # -> Two jobs come in to email queue, and two jobs come in to payment queue at the same time
-    # -> A1 takes an email job and A2 takes an email job
-    # -> B1 & B2 need to wait until their sleep timeout before processing the payment jobs
-
-    # strategy   = "WAIT"
-    # poll_range = Range.new(0.050, 0.100) # ~3.4%
-    # poll_range = Range.new(0.100, 0.200) # 1.3%
-    # poll_range = Range.new(0.200, 0.300) # 0.8%
-    # poll_range = Range.new(0.400, 0.500) # ~0.5%
-    # poll_range = Range.new(1.000, 1.200) # ~0.1%
-
-    # Better job distribution but uses more CPU
-    #
-    # Workers will sleep for a random number in this range when no jobs are found.
-    # This means when there is no queue backlog the maximum time to pick up a job will be within this range.
-    # Queues with a backlog will continue to process jobs immediately.
     def self.configuration
       @configuration ||= {
-        strategy:   "POLL",
+        # Workers will sleep for a random number in this range when no jobs are found.
+        # This means when there is no queue backlog the maximum time to pick up a job will be within this range.
+        # Queues with a backlog will continue to process jobs immediately.
         poll_range: Range.new(0.400, 0.500),
+
+        # Time between heartbeats.
+        heartbeat_period: 15,
       }
     end
 
     # Ranges with median CPU utilization on macOS with concurrency of 5:
-    # strategy   = "POLL"
     # poll_range = Range.new(0.050, 0.100) # ~2.7%
     # poll_range = Range.new(0.100, 0.200) # 1.3%
     # poll_range = Range.new(0.200, 0.300) # 0.8%
     # poll_range = Range.new(0.400, 0.500) # ~0.5%
     # poll_range = Range.new(1.000, 1.200) # ~0.1%
-
-    # Raise this exception to heartbeat threads when Sidekiq sends the shutdown hook.
-    class Shutdown < StandardError; end
 
     # @param capsule [Sidekiq::Capsule]
     def self.setup(capsule)
@@ -108,64 +70,22 @@ module Sidekiq
       super
     end
 
-    # @return [UnitOfWork, nil]
-    def retrieve_work
-      ordered_queues = queues_cmd # BasicFetch method handles randomization or strict ordering
-
-      case self.class.configuration[:strategy]
-      when "POLL" then run_poll(ordered_queues)
-
-      # :nocov: This will probably be removed
-      when "WAIT" then run_wait(ordered_queues)
-      # :nocov:
-      end
-    end
-
     # Lua:
     #   * If limits permit us to take a job, try to take a job (RPOP) from the Sidekiq queue
     #   * If a job is found:
     #     * Add the current process UUID to the internal "busy" list for that queue
     #     * Return Sidekiq job string to the client
-    def run_poll(ordered_queues)
+    #
+    # @return [UnitOfWork, nil]
+    def retrieve_work
+      ordered_queues = queues_cmd # BasicFetch method handles randomization or strict ordering
+
       job_queue, job_str = selector.limit_fetch(ordered_queues)
       return UnitOfWork.new(job_queue, job_str, capsule) if job_str
 
       Kernel.sleep(poll_interval)
       nil
     end
-
-    # Lua:
-    #   * If limits permit us to take a job:
-    #     * Add the current process UUID to the internal "busy" list for that queue
-    #     * Append to return array
-    # :nocov: This will probably be removed
-    def run_wait(ordered_queues)
-      reserved_queues = selector.limit_fetch(ordered_queues)
-
-      # Same behavior as BasicFetch
-      if reserved_queues.empty?
-        Kernel.sleep(poll_interval)
-        return
-      end
-
-      job_queue, job_str = capsule.redis do |redis|
-        timeout = poll_interval
-        redis.blocking_call(timeout, "BRPOP", *reserved_queues, timeout)
-      end
-
-      # Release locks on queues we were waiting on
-      capsule.redis do |redis|
-        redis.multi do |multi|
-          reserved_queues.each do |queue|
-            next if job_queue == queue
-            multi.lrem("sidekiq:limit_fetch:#{queue}:busy", 1, Global.capsule[capsule.name].uuid)
-          end
-        end
-      end
-
-      UnitOfWork.new(job_queue, job_str, capsule) if job_str
-    end
-    # :nocov:
 
     # @return [Float]
     def poll_interval

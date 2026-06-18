@@ -10,13 +10,11 @@
 --       * Add the process UUID to the internal "busy" list for that queue
 
 local capsule_uuid = ARGV[1]
-local strategy     = ARGV[2]
-local locks, process_locks
+local global_locks, process_locks
 local found_job
 local queue_config
-local process_limit_key, limit_key, busy_key
-local limit, process_limit
-local available = {}
+local process_limit_key, global_limit_key, busy_key
+local global_limit, process_limit
 
 -- Unpack keys to table structure:
 --   {
@@ -43,16 +41,16 @@ end
 for _, queue in ipairs(queues) do
   queue_config      = queue_configs[queue]
   process_limit_key = queue_config[1]
-  limit_key         = queue_config[2]
+  global_limit_key  = queue_config[2]
   busy_key          = queue_config[3]
 
-  limit, process_limit =
+  global_limit, process_limit =
     unpack(redis.call('MGET',
-      limit_key,
+      global_limit_key,
       process_limit_key
     ))
 
-  limit = tonumber(limit)
+  global_limit  = tonumber(global_limit)
   process_limit = tonumber(process_limit)
 
   if process_limit then
@@ -60,26 +58,17 @@ for _, queue in ipairs(queues) do
   end
 
   if not process_limit or process_limit > process_locks then
-    if limit then
-      locks = redis.call('LLEN', busy_key)
+    if global_limit then
+      global_locks = redis.call('LLEN', busy_key)
     end
-    if not limit or limit > locks then
-      if strategy == 'POLL' then
-        found_job = redis.call('RPOP', queue) -- Sidekiq queue
-        if found_job then
-          redis.call('RPUSH', busy_key, capsule_uuid) -- Increment busy count
-          return {queue, found_job}
-        end
-      elseif strategy == 'WAIT' then
-        redis.call('RPUSH', busy_key, capsule_uuid)
-        table.insert(available, queue)
+    if not global_limit or global_limit > global_locks then
+      found_job = redis.call('RPOP', queue) -- Sidekiq queue
+      if found_job then
+        redis.call('RPUSH', busy_key, capsule_uuid) -- Increment busy count
+        return {queue, found_job}
       end
     end
   end
 end
 
-if strategy == 'POLL' then
-  return nil  -- No job was found
-elseif strategy == 'WAIT' then
-  return available
-end
+return nil  -- No job was found

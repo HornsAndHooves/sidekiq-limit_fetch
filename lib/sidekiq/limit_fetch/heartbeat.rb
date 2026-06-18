@@ -45,7 +45,7 @@ module Sidekiq
             handle_redis_error(error)
           end
 
-          Kernel.sleep(HEARTBEAT_PERIOD)
+          Kernel.sleep(LimitFetch.configuration[:heartbeat_period])
         rescue LimitFetch::Shutdown
           break
         end

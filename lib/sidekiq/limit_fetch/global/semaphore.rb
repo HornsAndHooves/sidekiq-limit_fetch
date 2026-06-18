@@ -92,7 +92,7 @@ module Sidekiq
         def heartbeat
           redis do |conn|
             conn.multi do |multi|
-              multi.set("#{@prefix}:heartbeat", "1", "ex", LimitFetch::HEARTBEAT_PERIOD * 4)
+              multi.set("#{@prefix}:heartbeat", "1", "ex", LimitFetch.configuration[:heartbeat_period] * 4)
               multi.sadd("#{SemaphoreBase::PREFIX}:capsules", @capsule_uuid)
             end
           end
