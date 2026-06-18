@@ -1,0 +1,85 @@
+-- For each queue:
+--   * Check limit constraints to see whether this process can take a job from the queue
+--   [POLL]:
+--     * If limits permit us to take a job, try to take a job (RPOP) from the Sidekiq queue
+--     * If a job is found:
+--       * Add the current process UUID to the internal "busy" list for that queue
+--       * Return Sidekiq job string to the client
+--   [WAIT]:
+--     * If limits permit us to take a job:
+--       * Add the process UUID to the internal "busy" list for that queue
+
+local capsule_uuid = ARGV[1]
+local strategy     = ARGV[2]
+local locks, process_locks
+local found_job
+local queue_config
+local process_limit_key, limit_key, busy_key
+local limit, process_limit
+local available = {}
+
+-- Unpack keys to table structure:
+--   {
+--     'queue:email' => [
+--       'sidekiq:limit_fetch:queue:email:process_limit',
+--       'sidekiq:limit_fetch:queue:email:limit',
+--       'sidekiq:limit_fetch:queue:email:busy',
+--     ]
+--   }
+local queues = {} -- Preserves order
+local queue_configs = {}
+local current_queue_name
+for _, key in ipairs(KEYS) do
+  if key:find('queue:', 1, true) == 1 then
+    queues[#queues+1] = key
+    current_queue_name = key
+    queue_configs[current_queue_name] = {}
+  else
+    queue_config = queue_configs[current_queue_name]
+    queue_config[#queue_config+1] = key
+  end
+end
+
+for _, queue in ipairs(queues) do
+  queue_config      = queue_configs[queue]
+  process_limit_key = queue_config[1]
+  limit_key         = queue_config[2]
+  busy_key          = queue_config[3]
+
+  limit, process_limit =
+    unpack(redis.call('MGET',
+      limit_key,
+      process_limit_key
+    ))
+
+  limit = tonumber(limit)
+  process_limit = tonumber(process_limit)
+
+  if process_limit then
+    process_locks = #(redis.call('LPOS', busy_key, capsule_uuid, 'COUNT', 0))
+  end
+
+  if not process_limit or process_limit > process_locks then
+    if limit then
+      locks = redis.call('LLEN', busy_key)
+    end
+    if not limit or limit > locks then
+      if strategy == 'POLL' then
+        found_job = redis.call('RPOP', queue) -- Sidekiq queue
+        if found_job then
+          redis.call('RPUSH', busy_key, capsule_uuid) -- Increment busy count
+          return {queue, found_job}
+        end
+      elseif strategy == 'WAIT' then
+        redis.call('RPUSH', busy_key, capsule_uuid)
+        table.insert(available, queue)
+      end
+    end
+  end
+end
+
+if strategy == 'POLL' then
+  return nil  -- No job was found
+elseif strategy == 'WAIT' then
+  return available
+end

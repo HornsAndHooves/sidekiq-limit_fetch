@@ -1,188 +1,146 @@
 # frozen_string_literal: true
 
 module Sidekiq
-  module LimitFetch
-    module Global
-      class Semaphore
-        PREFIX = 'limit_fetch'
+  class LimitFetch
+    class Global
+      # Base class for Redis-backed semaphores that track queue concurrency.
+      # Provides common initialization and Redis access for subclasses.
+      class SemaphoreBase
+        # Redis key prefix for all limit_fetch data.
+        PREFIX = "sidekiq:limit_fetch"
 
-        attr_reader :local_busy
-
-        def initialize(name)
-          @name = name
-          @lock = Mutex.new
-          @local_busy = 0
-        end
-
-        def limit
-          value = redis { |it| it.get "#{PREFIX}:limit:#{@name}" }
-          value&.to_i
-        end
-
-        def limit=(value)
-          @limit_changed = true
-
-          if value
-            redis { |it| it.set "#{PREFIX}:limit:#{@name}", value }
-          else
-            redis { |it| it.del "#{PREFIX}:limit:#{@name}" }
-          end
-        end
-
-        def limit_changed?
-          @limit_changed
-        end
-
-        def process_limit
-          value = redis { |it| it.get "#{PREFIX}:process_limit:#{@name}" }
-          value&.to_i
-        end
-
-        def process_limit=(value)
-          if value
-            redis { |it| it.set "#{PREFIX}:process_limit:#{@name}", value }
-          else
-            redis { |it| it.del "#{PREFIX}:process_limit:#{@name}" }
-          end
-        end
-
-        def acquire
-          Selector.acquire([@name], namespace).size.positive?
-        end
-
-        def release
-          redis { |it| it.lrem "#{PREFIX}:probed:#{@name}", 1, Selector.uuid }
-        end
-
-        def busy
-          redis { |it| it.llen "#{PREFIX}:busy:#{@name}" }
-        end
-
-        def busy_processes
-          redis { |it| it.lrange "#{PREFIX}:busy:#{@name}", 0, -1 }
-        end
-
-        def increase_busy
-          increase_local_busy
-          redis { |it| it.rpush "#{PREFIX}:busy:#{@name}", Selector.uuid }
-        end
-
-        def decrease_busy
-          decrease_local_busy
-          redis { |it| it.lrem "#{PREFIX}:busy:#{@name}", 1, Selector.uuid }
-        end
-
-        def probed
-          redis { |it| it.llen "#{PREFIX}:probed:#{@name}" }
-        end
-
-        def probed_processes
-          redis { |it| it.lrange "#{PREFIX}:probed:#{@name}", 0, -1 }
-        end
-
-        def pause
-          redis { |it| it.set "#{PREFIX}:pause:#{@name}", '1' }
-        end
-
-        def pause_for_ms(milliseconds)
-          redis { |it| it.psetex "#{PREFIX}:pause:#{@name}", milliseconds, 1 }
-        end
-
-        def unpause
-          redis { |it| it.del "#{PREFIX}:pause:#{@name}" }
-        end
-
-        def paused?
-          redis { |it| it.get "#{PREFIX}:pause:#{@name}" } == '1'
-        end
-
-        def block
-          redis { |it| it.set "#{PREFIX}:block:#{@name}", '1' }
-        end
-
-        def block_except(*queues)
-          raise ArgumentError if queues.empty?
-
-          redis { |it| it.set "#{PREFIX}:block:#{@name}", queues.join(',') }
-        end
-
-        def unblock
-          redis { |it| it.del "#{PREFIX}:block:#{@name}" }
-        end
-
-        def blocking?
-          redis { |it| it.get "#{PREFIX}:block:#{@name}" } == '1'
-        end
-
-        def clear_limits
-          redis do |it|
-            %w[block busy limit pause probed process_limit].each do |key|
-              it.del "#{PREFIX}:#{key}:#{@name}"
-            end
-          end
-        end
-
-        def increase_local_busy
-          @lock.synchronize { @local_busy += 1 }
-        end
-
-        def decrease_local_busy
-          @lock.synchronize { @local_busy -= 1 }
-        end
-
-        def local_busy?
-          @local_busy.positive?
-        end
-
-        def explain
-          <<-INFO.gsub(/^ {8}/, '')
-        Current sidekiq process: #{Selector.uuid}
-
-          All processes:
-        #{Monitor.all_processes.join "\n"}
-
-          Stale processes:
-        #{Monitor.old_processes.join "\n"}
-
-          Locked queue processes:
-        #{probed_processes.sort.join "\n"}
-
-          Busy queue processes:
-        #{busy_processes.sort.join "\n"}
-
-          Limit:
-        #{limit.inspect}
-
-          Process limit:
-        #{process_limit.inspect}
-
-          Blocking:
-        #{blocking?}
-          INFO
-        end
-
-        def remove_locks_except!(processes)
-          locked_processes = probed_processes.uniq
-          (locked_processes - processes).each do |dead_process|
-            remove_lock! dead_process
-          end
-        end
-
-        def remove_lock!(process)
-          redis do |it|
-            it.lrem "#{PREFIX}:probed:#{@name}", 0, process
-            it.lrem "#{PREFIX}:busy:#{@name}", 0, process
-          end
+        # @param capsule [Sidekiq::Capsule]
+        def initialize(capsule)
+          @capsule = capsule
+          @capsule_meta = Global.capsule[capsule.name]
+          @capsule_uuid = @capsule_meta.uuid
         end
 
         private
 
-        def redis(&block)
-          Sidekiq.redis(&block)
+        # Delegates to the capsule's Redis connection pool.
+        #
+        # @yield [conn] Redis connection
+        def redis(...)
+          @capsule.redis(...)
+        end
+      end
+
+      # Manages concurrency semaphore state for an individual queue.
+      # Stores global limits, per-process limits, and the busy list in Redis.
+      class QueueSemaphore < SemaphoreBase
+        def initialize(capsule, queue_name)
+          super(capsule)
+          queue_name = queue_name.delete_prefix("queue:")
+          @prefix    = "#{PREFIX}:queue:#{queue_name}"
         end
 
-        def namespace
-          Sidekiq::LimitFetch::Queues.namespace
+        # Returns the global concurrency limit for this queue.
+        #
+        # @return [Integer, nil]
+        def limit
+          redis { |conn| conn.get("#{@prefix}:limit") }&.to_i
+        end
+
+        # Sets the global concurrency limit for this queue.
+        #
+        # @param value [Integer, nil]
+        def limit=(value)
+          if value
+            redis { |conn| conn.set("#{@prefix}:limit", value) }
+          else
+            redis { |conn| conn.del("#{@prefix}:limit") }
+          end
+        end
+
+        # Returns the per-process concurrency limit for this queue.
+        #
+        # @return [Integer, nil]
+        def process_limit
+          redis { |conn| conn.get("#{@prefix}:process_limit") }&.to_i
+        end
+
+        # Sets the per-process concurrency limit for this queue.
+        #
+        # @param value [Integer, nil]
+        def process_limit=(value)
+          if value
+            redis { |conn| conn.set("#{@prefix}:process_limit", value) }
+          else
+            redis { |conn| conn.del("#{@prefix}:process_limit") }
+          end
+        end
+
+        # Releases one busy slot for this capsule on the queue.
+        # Called when a job finishes processing (acknowledge) or is requeued.
+        def release
+          redis { |conn| conn.lrem("#{@prefix}:busy", 1, @capsule_uuid) }
+        end
+      end
+
+      # Manages capsule-level heartbeat registration and dead-capsule reaping.
+      # Each Sidekiq process registers itself and periodically heartbeats to
+      # signal liveness. Stale capsules are reaped and their busy slots freed.
+      class CapsuleSemaphor < SemaphoreBase
+        def initialize(capsule)
+          super
+          @prefix = "#{PREFIX}:capsule:#{@capsule_uuid}"
+        end
+
+        # Set a heartbeat key in Redis and ensure the capsule UUID is in the active set in Redis.
+        # Heartbeat takes ~2.5ms on macOS
+        def heartbeat
+          redis do |conn|
+            conn.multi do |multi|
+              multi.set("#{@prefix}:heartbeat", "1", "ex", LimitFetch::HEARTBEAT_PERIOD * 4)
+              multi.sadd("#{SemaphoreBase::PREFIX}:capsules", @capsule_uuid)
+            end
+          end
+
+          reap
+        end
+
+        # Returns all registered capsule UUIDs.
+        #
+        # @return [Array<String>]
+        def list
+          redis { |conn| conn.smembers("#{SemaphoreBase::PREFIX}:capsules") }
+        end
+
+        # Finds and purges dead capsules. Called on every heartbeat.
+        def reap
+          dead_capsules = list_dead
+          purge(dead_capsules)
+        end
+
+        # Identifies dead capsules by checking for missing heartbeat keys.
+        #
+        # @return [Array<String>]
+        def list_dead
+          uuids = list
+          return uuids if uuids.empty?
+          heartbeat_keys = uuids.map { |uuid| "#{SemaphoreBase::PREFIX}:capsule:#{uuid}:heartbeat" }
+          heartbeat_statuses = redis { |conn| conn.mget(*heartbeat_keys) }
+          uuids.zip(heartbeat_statuses).filter_map { |uuid, status| uuid if status != "1" }
+        end
+
+        # Removes dead capsules from the registry and cleans up their busy slots
+        # across all queues managed by this capsule.
+        #
+        # @param uuids [Array<String>]
+        def purge(uuids)
+          return if uuids.empty?
+          redis do |conn|
+            conn.multi do |multi|
+              multi.srem("#{SemaphoreBase::PREFIX}:capsules", *uuids)
+              uuids.each do |uuid|
+                multi.del("#{SemaphoreBase::PREFIX}:capsule:#{uuid}:heartbeat")
+                @capsule_meta.queue_set.each do |queue|
+                  multi.lrem("#{SemaphoreBase::PREFIX}:queue:#{queue}:busy", 0, uuid)
+                end
+              end
+            end
+          end
         end
       end
     end
