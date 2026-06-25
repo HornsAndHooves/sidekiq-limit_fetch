@@ -1,5 +1,16 @@
 # Changelog
 
+## [5.0.0] - 2026-06-18
+
+This release is a complete rewrite of the gem for Sidekiq 8+.
+
+- Replace the legacy fetch implementation with a new `Sidekiq::LimitFetch` strategy built for Sidekiq 8's capsule/fetch model.
+- Enforce queue concurrency limits atomically with a Redis Lua script that checks limits, pops jobs, and records busy slots in a single operation.
+- Add Redis-backed global queue limits and per-process queue limits.
+- Add heartbeat-based process registration and stale busy-slot reaping so queues recover after unclean Sidekiq shutdowns.
+- Preserve Sidekiq's normal strict and weighted queue ordering while skipping queues whose limits are currently exhausted.
+- Remove legacy APIs/features from older implementations, including queue pause/unpause helpers, blocking queue mode, dynamic queues, and `Sidekiq::Queue[...]` limit helpers.
+
 ## [4.5.0] - 2026-06-15
 
 This project was taken over by [@HornsAndHooves](https://github.com/HornsAndHooves)

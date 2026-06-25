@@ -1,27 +1,19 @@
 # frozen_string_literal: true
 
 module Sidekiq
-  module LimitFetch
+  class LimitFetch
+    # Sidekiq's object to track a job being processed.
+    # fetcher_class#retrieve_work is expected to return, so it must be a somewhat public API.
     class UnitOfWork < BasicFetch::UnitOfWork
-      def initialize(...)
-        super
-        redis_retryable { Queue[queue_name].increase_busy }
-      end
-
+      # Acknowledge completion of job
       def acknowledge
-        redis_retryable { Queue[queue_name].decrease_busy }
-        redis_retryable { Queue[queue_name].release }
+        Global::QueueSemaphore.new(config, queue_name).release
       end
 
+      # Put the job back in Redis.
       def requeue
-        super
         acknowledge
-      end
-
-      private
-
-      def redis_retryable(&block)
-        Sidekiq::LimitFetch.redis_retryable(&block)
+        super
       end
     end
   end
