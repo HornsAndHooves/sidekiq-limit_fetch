@@ -13,14 +13,14 @@ module Sidekiq
       def self.shutdown
         threads.each do |thread|
           thread.raise(Shutdown)
-          thread.join
+          thread.join(LimitFetch.configuration[:heartbeat_period] * 2)
         end
       end
 
       # @param capsule [Sidekiq::Capsule]
       def initialize(capsule)
         @capsule = capsule
-        @redis_down = false
+        @down = false
       end
 
       # @return [Thread]
@@ -36,35 +36,46 @@ module Sidekiq
       def run
         loop do
           begin
-            capsule_sem.heartbeat
-            if @redis_down
-              log :info, "Redis back online, heartbeat completed successfully"
-              @redis_down = false
+            with_error_handling do
+              capsule_sem.heartbeat
+              if @down
+                log :info, "Redis back online, heartbeat completed successfully"
+                @down = false
+              end
             end
-          rescue RedisClient::Error => error
-            handle_redis_error(error)
-          end
+            with_error_handling { Kernel.sleep(LimitFetch.configuration[:heartbeat_period]) }
 
-          Kernel.sleep(LimitFetch.configuration[:heartbeat_period])
-        rescue LimitFetch::Shutdown
-          break
+          rescue LimitFetch::Shutdown
+            break
+          end
         end
 
-        log :info, "Shutting down"
-        if !@redis_down
+        with_error_handling do
           capsule_sem.purge([capsule_meta.uuid])  # Deregister
+          log :info, "Successfully shut down"
         end
       end
 
-      # @param error [RedisClient::Error]
-      def handle_redis_error(error)
-        if @redis_down
+      # @return [Boolean] whether block completed successfully
+      def with_error_handling
+        yield
+        true
+      rescue LimitFetch::Shutdown
+        raise
+      rescue StandardError => error
+        handle_error(error)
+        false
+      end
+
+      # @param error [StandardError]
+      def handle_error(error)
+        if @down
           # Already logged the original error, make repeating connection errors more concise
           log :error, "Failed: #{error.class}"
         else
           log :error, "#{error.class}: #{error.message}#{error.backtrace.join("\n")}"
         end
-        @redis_down = true
+        @down = true
       end
 
       # @return [Global::CapsuleSemaphor]
